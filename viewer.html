@@ -1,0 +1,558 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TVR MBETool Log Viewer</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;800&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0c0f; --surface: #111318; --surface2: #181c23;
+    --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12);
+    --accent: #e8562a; --accent2: #f0a830;
+    --text: #e8e6e1; --muted: #6b7280;
+    --mono: 'JetBrains Mono', monospace; --sans: 'Syne', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 13px; min-height: 100vh; overflow-x: hidden; }
+
+  header { display: flex; align-items: center; justify-content: space-between; padding: 18px 28px; border-bottom: 1px solid var(--border); background: var(--surface); }
+  .logo { font-family: var(--sans); font-weight: 800; font-size: 18px; letter-spacing: -0.02em; }
+  .logo span { color: var(--accent); }
+  .logo sub { font-family: var(--mono); font-size: 10px; font-weight: 400; color: var(--muted); margin-left: 6px; vertical-align: middle; }
+  .file-info { font-size: 11px; color: var(--muted); display: flex; align-items: center; gap: 16px; }
+
+  #dropzone { display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: calc(100vh - 64px); gap: 16px; padding: 40px; text-align: center; }
+  .drop-box { border: 1.5px dashed var(--border2); border-radius: 12px; padding: 60px 80px; cursor: pointer; transition: border-color 0.2s, background 0.2s; background: var(--surface); }
+  .drop-box:hover, .drop-box.drag-over { border-color: var(--accent); background: rgba(232,86,42,0.04); }
+  .drop-icon { font-size: 40px; margin-bottom: 12px; }
+  .drop-title { font-family: var(--sans); font-size: 20px; font-weight: 600; margin-bottom: 8px; }
+  .drop-sub { color: var(--muted); font-size: 12px; line-height: 1.6; }
+  #fileInput { display: none; }
+
+  #app { display: none; flex-direction: column; height: calc(100vh - 64px); }
+
+  #controls { display: flex; align-items: center; gap: 8px; padding: 10px 20px; border-bottom: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; flex-shrink: 0; }
+  .ctrl-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin-right: 4px; white-space: nowrap; }
+  .ch-btn { padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border2); background: transparent; color: var(--muted); font-family: var(--mono); font-size: 11px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .ch-btn:hover { border-color: rgba(255,255,255,0.25); color: var(--text); }
+  .divider { width: 1px; height: 20px; background: var(--border); margin: 0 4px; flex-shrink: 0; }
+  .ctrl-btn { padding: 4px 10px; border-radius: 4px; border: 1px solid var(--border2); background: transparent; color: var(--muted); font-family: var(--mono); font-size: 11px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .ctrl-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.25); }
+  .ctrl-btn.on { color: var(--accent); border-color: var(--accent); }
+
+  #chartWrap { flex: 1; padding: 16px 20px 8px; position: relative; min-height: 0; }
+  #chartWrap canvas { cursor: crosshair !important; }
+
+  #tooltip {
+    position: fixed; pointer-events: none; z-index: 1000; display: none;
+    background: var(--surface2); border: 1px solid var(--border2); border-radius: 8px;
+    padding: 12px 14px; min-width: 220px; max-width: 290px;
+    box-shadow: 0 8px 32px rgba(0,0,0,0.6);
+  }
+  .tt-time { font-family: var(--sans); font-weight: 600; font-size: 12px; color: var(--accent); margin-bottom: 10px; padding-bottom: 8px; border-bottom: 1px solid var(--border); letter-spacing: 0.04em; }
+  .tt-row { display: flex; justify-content: space-between; align-items: center; padding: 3px 0; gap: 12px; }
+  .tt-label { color: var(--muted); font-size: 11px; display: flex; align-items: center; gap: 6px; white-space: nowrap; }
+  .tt-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; }
+  .tt-val { font-weight: 500; font-size: 12px; font-family: var(--mono); white-space: nowrap; }
+  .tt-section { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; margin: 8px 0 4px; padding-top: 6px; border-top: 1px solid var(--border); }
+  .tt-status { display: inline-flex; align-items: center; gap: 4px; font-size: 10px; padding: 1px 6px; border-radius: 3px; }
+  .tt-ok { background: rgba(74,222,128,0.1); color: #4ade80; }
+  .tt-fail { background: rgba(248,113,113,0.1); color: #f87171; }
+  .tt-trend-block { margin-top: 10px; padding-top: 8px; border-top: 1px solid var(--border); }
+  .tt-trend-row { display: flex; justify-content: space-between; align-items: center; padding: 2px 0; font-size: 10px; }
+  .tt-trend-label { color: var(--muted); display: flex; align-items: center; gap: 5px; }
+  .tt-trend-val { font-family: var(--mono); font-size: 10px; }
+  .trend-up { color: #fb7185; }
+  .trend-dn { color: #34d399; }
+  .trend-flat { color: var(--muted); }
+
+
+  #crosshair { position: absolute; width: 1px; background: rgba(232,86,42,0.4); pointer-events: none; display: none; top: 16px; }
+
+  .values-strip { display: flex; flex-wrap: wrap; gap: 2px 14px; padding: 6px 20px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
+  .val-item { display: flex; align-items: baseline; gap: 5px; }
+  .val-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+  .val-label { font-size: 10px; color: var(--muted); }
+  .val-num { font-size: 12px; font-weight: 500; color: var(--text); font-family: var(--mono); min-width: 42px; }
+  .val-num.alert { color: #f87171; }
+  .status-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 20px 6px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
+  .sflag { font-size: 10px; padding: 1px 6px; border-radius: 3px; }
+  .sflag-ok   { background: rgba(74,222,128,0.1);  color: #4ade80; }
+  .sflag-fail { background: rgba(248,113,113,0.1); color: #f87171; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">TVR <span>MBE</span><sub>log viewer</sub></div>
+  <div class="file-info">
+    <span id="headerFilename" style="display:none"></span>
+    <span id="headerSamples" style="display:none"></span>
+  </div>
+</header>
+
+<div id="dropzone">
+  <div class="drop-box" id="dropBox">
+    <div class="drop-icon">📂</div>
+    <div class="drop-title">Drop your MBETool log here</div>
+    <div class="drop-sub">CSV file exported from MBETool<br>semicolon separated · comma decimal</div>
+  </div>
+  <div style="color:var(--muted);font-size:11px">or <span style="color:var(--accent);cursor:pointer;text-decoration:underline" onclick="document.getElementById('fileInput').click()">browse for file</span></div>
+  <input type="file" id="fileInput" accept=".csv">
+</div>
+
+<div id="app">
+  <div id="controls">
+    <span class="ctrl-label">Channels</span>
+    <div class="divider" id="divider1"></div>
+    <span class="ctrl-label">Trendlines</span>
+    <button class="ctrl-btn" id="trendBtn" onclick="toggleTrend()">Off</button>
+    <select id="trendWindow" onchange="buildChart()" style="padding:4px 6px;border-radius:4px;border:1px solid var(--border2);background:var(--surface2);color:var(--muted);font-family:var(--mono);font-size:11px;cursor:pointer;display:none">
+      <option value="0">Full range</option>
+      <option value="50">50 pts rolling</option>
+      <option value="100" selected>100 pts rolling</option>
+      <option value="200">200 pts rolling</option>
+    </select>
+    <div class="divider"></div>
+    <span class="ctrl-label">Zoom</span>
+    <button class="ctrl-btn" onclick="resetZoom()">Reset</button>
+    <button class="ctrl-btn" onclick="zoomIn()">+ In</button>
+    <button class="ctrl-btn" onclick="zoomOut()">- Out</button>
+    <div class="divider"></div>
+    <span class="ctrl-label">Values</span>
+    <button class="ctrl-btn" id="valBtn" onclick="toggleValues()">Tooltip: Off</button>
+  </div>
+  <div id="chartWrap">
+    <div id="crosshair"></div>
+    <canvas id="myChart"></canvas>
+  </div>
+
+  <div class="values-strip" id="valStrip"></div>
+  <div class="status-row" id="valStatus"></div>
+</div>
+
+<div id="tooltip"></div>
+
+<script>
+const CHANNELS = [
+  { key: 'RPM',          label: 'RPM',       unit: '',    color: '#e8562a', yAxis: 'rpm',  def: true  },
+  { key: 'Adaptive 1',   label: 'Adap 1',    unit: '%',   color: '#f0a830', yAxis: 'pct',  def: true  },
+  { key: 'Adaptive 2',   label: 'Adap 2',    unit: '%',   color: '#fb7185', yAxis: 'pct',  def: true  },
+  { key: 'Lambda ECU 1', label: 'lam1',      unit: 'V',   color: '#34d399', yAxis: 'lam',  def: true  },
+  { key: 'Lambda ECU 2', label: 'lam2',      unit: 'V',   color: '#22d3ee', yAxis: 'lam',  def: true  },
+  { key: 'Throttle 1',   label: 'TPS1',      unit: '%',   color: '#a78bfa', yAxis: 'tps',  def: false },
+  { key: 'Throttle 2',   label: 'TPS2',      unit: '%',   color: '#c4b5fd', yAxis: 'tps',  def: false },
+  { key: 'Injection 1',  label: 'Inj1',      unit: 'ms',  color: '#f97316', yAxis: 'inj',  def: false },
+  { key: 'Injection 2',  label: 'Inj2',      unit: 'ms',  color: '#fb923c', yAxis: 'inj',  def: false },
+  { key: 'WaterT',       label: 'Water C',   unit: 'C',   color: '#60a5fa', yAxis: 'temp', def: false },
+  { key: 'AirT',         label: 'Air C',     unit: 'C',   color: '#93c5fd', yAxis: 'temp', def: false },
+  { key: 'OilP',         label: 'Oil PSI',   unit: 'psi', color: '#fbbf24', yAxis: 'oil',  def: false },
+  { key: 'Ignition',     label: 'Ignition',  unit: 'deg', color: '#e879f9', yAxis: 'ign',  def: false },
+  { key: 'BattV',        label: 'Batt V',    unit: 'V',   color: '#86efac', yAxis: 'batt', def: false },
+];
+const STATUS_KEYS = ['AFR123 OK','AFR456 OK','Lambda 1 OK','Lambda 2 OK','Battery OK','WaterTemp OK'];
+
+var allData = [];
+var chart = null;
+var activeChannels = new Set(CHANNELS.filter(function(c){ return c.def; }).map(function(c){ return c.key; }));
+var zoomStart = 0, zoomEnd = 1;
+var trendMode = 'off';
+var valuesMode = 'strip'; // 'tooltip' | 'strip' | 'both'
+var isPanning = false, panStartX = 0, panStartZoomStart = 0, panStartZoomEnd = 0;
+var trendData = {};
+
+function toggleTrend() {
+  var modes = ['off','both','trend'];
+  trendMode = modes[(modes.indexOf(trendMode)+1)%3];
+  var btn = document.getElementById('trendBtn');
+  var sel = document.getElementById('trendWindow');
+  var labels = {'off':'Off','both':'Both','trend':'Trend only'};
+  btn.textContent = labels[trendMode];
+  if (trendMode !== 'off') { btn.classList.add('on'); } else { btn.classList.remove('on'); }
+  sel.style.display = trendMode !== 'off' ? '' : 'none';
+  buildChart();
+}
+
+function linReg(values) {
+  var pts = [];
+  for (var i = 0; i < values.length; i++) {
+    if (values[i] !== null && values[i] !== undefined && !isNaN(values[i])) {
+      pts.push({ x: i, y: values[i] });
+    }
+  }
+  if (pts.length < 2) return null;
+  var n = pts.length;
+  var sx = 0, sy = 0, sxy = 0, sx2 = 0;
+  for (var j = 0; j < n; j++) { sx += pts[j].x; sy += pts[j].y; sxy += pts[j].x * pts[j].y; sx2 += pts[j].x * pts[j].x; }
+  var D = n * sx2 - sx * sx;
+  if (D === 0) return null;
+  var slope = (n * sxy - sx * sy) / D;
+  var intercept = (sy - slope * sx) / n;
+  return { slope: slope, intercept: intercept };
+}
+
+function buildRollingTrend(values, W) {
+  var n = values.length;
+  if (!W || W <= 0) {
+    var reg = linReg(values);
+    if (!reg) return new Array(n).fill(null);
+    return values.map(function(_, i) { return parseFloat((reg.slope * i + reg.intercept).toFixed(4)); });
+  }
+  var half = Math.floor(W / 2);
+  var result = [];
+  for (var i = 0; i < n; i++) {
+    var s = Math.max(0, i - half);
+    var e = Math.min(n - 1, i + half);
+    var slice = values.slice(s, e + 1);
+    var reg = linReg(slice);
+    if (!reg) { result.push(null); continue; }
+    var localI = i - s;
+    result.push(parseFloat((reg.slope * localI + reg.intercept).toFixed(4)));
+  }
+  return result;
+}
+
+function slopeLabel(values, unit) {
+  var reg = linReg(values);
+  if (!reg) return { text: 'flat', cls: 'trend-flat' };
+  var s = reg.slope;
+  if (Math.abs(s) < 0.0005) return { text: 'flat', cls: 'trend-flat' };
+  var per100 = (s * 100).toFixed(2);
+  if (s > 0) return { text: 'rising +' + per100 + unit + '/100pts', cls: 'trend-up' };
+  return { text: 'falling ' + per100 + unit + '/100pts', cls: 'trend-dn' };
+}
+
+function buildChart() {
+  var n = allData.length;
+  var s = Math.floor(zoomStart * n);
+  var e = Math.ceil(zoomEnd * n);
+  var slice = allData.slice(s, e);
+  var labels = slice.map(function(r) { return typeof r['Time'] === 'number' ? r['Time'].toFixed(1) : r['Time']; });
+  var W = parseInt(document.getElementById('trendWindow').value) || 0;
+
+  trendData = {};
+  var datasets = [];
+
+  CHANNELS.filter(function(ch) { return activeChannels.has(ch.key); }).forEach(function(ch) {
+    var vals = slice.map(function(r) { return typeof r[ch.key] === 'number' ? r[ch.key] : null; });
+
+    if (trendMode !== 'trend') {
+      datasets.push({
+        label: ch.label,
+        data: vals,
+        borderColor: trendMode==='both' ? ch.color+'66' : ch.color,
+        backgroundColor: 'transparent',
+        borderWidth: trendMode==='both' ? 1 : 1.5,
+        pointRadius: 0, pointHoverRadius: 0,
+        tension: 0.2, yAxisID: ch.yAxis, spanGaps: true, order: 2,
+      });
+    }
+
+    if (trendMode !== 'off') {
+      var trend = buildRollingTrend(vals, W);
+      trendData[ch.key] = slopeLabel(vals, ch.unit);
+      datasets.push({
+        label: ch.label + ' trend',
+        data: trend,
+        borderColor: trendMode==='trend' ? ch.color : ch.color+'cc',
+        backgroundColor: 'transparent',
+        borderWidth: 2,
+        borderDash: trendMode==='trend' ? [] : [6, 4],
+        pointRadius: 0, pointHoverRadius: 0,
+        tension: 0, yAxisID: ch.yAxis, spanGaps: true, order: 1,
+      });
+    }
+  });
+
+  var scales = {
+    x: { ticks: { color: '#4b5563', font: { family: "'JetBrains Mono'", size: 10 }, maxTicksLimit: 12 }, grid: { color: 'rgba(255,255,255,0.04)' }, border: { color: 'rgba(255,255,255,0.08)' } },
+    rpm:  makeScale('#e8562a', false, 0, 6000),
+    pct:  makeScale('#f0a830', true, -45, 30),
+    lam:  makeScale('#34d399', false, 0, 1.1),
+    tps:  makeScale('#a78bfa', false, 0, 110),
+    inj:  makeScale('#f97316', false, 0, 8),
+    temp: makeScale('#60a5fa', false, 0, 120),
+    oil:  makeScale('#fbbf24', false, 0, 80),
+    ign:  makeScale('#e879f9', true, -70, 0),
+    batt: makeScale('#86efac', false, 10, 16),
+  };
+
+  var activeAxes = new Set(CHANNELS.filter(function(c) { return activeChannels.has(c.key); }).map(function(c) { return c.yAxis; }));
+  Object.keys(scales).forEach(function(k) { if (k !== 'x') scales[k].display = activeAxes.has(k); });
+
+  if (chart) { chart.destroy(); chart = null; }
+
+  chart = new Chart(document.getElementById('myChart'), {
+    type: 'line',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: scales,
+    }
+  });
+
+  var canvas = document.getElementById('myChart');
+  canvas.addEventListener('mousemove', onMouseMove);
+  canvas.addEventListener('mouseleave', function() {
+    document.getElementById('tooltip').style.display = 'none';
+    document.getElementById('crosshair').style.display = 'none';
+    isPanning = false;
+    canvas.style.cursor = 'crosshair';
+  });
+
+  // Scroll wheel: zoom centred on mouse X position
+  canvas.addEventListener('wheel', function(ev) {
+    ev.preventDefault();
+    var area = chart ? chart.chartArea : null;
+    var rect = canvas.getBoundingClientRect();
+    var mousePct = area
+      ? Math.max(0, Math.min(1, (ev.clientX - rect.left - area.left) / (area.right - area.left)))
+      : 0.5;
+    var delta = ev.deltaY > 0 ? 0.15 : -0.15;
+    var range = zoomEnd - zoomStart;
+    var newRange = Math.min(1, Math.max(0.02, range + delta * range));
+    var anchor = zoomStart + mousePct * range;
+    zoomStart = Math.max(0, anchor - mousePct * newRange);
+    zoomEnd   = Math.min(1, zoomStart + newRange);
+    if (zoomEnd > 1) { zoomEnd = 1; zoomStart = Math.max(0, 1 - newRange); }
+    buildChart();
+  }, { passive: false });
+
+  // Click-drag pan
+  canvas.addEventListener('mousedown', function(ev) {
+    if (ev.button !== 0) return;
+    isPanning = true;
+    panStartX = ev.clientX;
+    panStartZoomStart = zoomStart;
+    panStartZoomEnd   = zoomEnd;
+    canvas.style.cursor = 'grabbing';
+  });
+  canvas.addEventListener('mouseup', function() {
+    isPanning = false;
+    canvas.style.cursor = 'crosshair';
+  });
+}
+
+function makeScale(color, isLeft, min, max) {
+  return {
+    type: 'linear', position: isLeft ? 'left' : 'right', display: true, min: min, max: max,
+    ticks: { color: color, font: { family: "'JetBrains Mono'", size: 9 }, maxTicksLimit: 6 },
+    grid: { drawOnChartArea: isLeft, color: 'rgba(255,255,255,0.04)' },
+    border: { color: 'rgba(255,255,255,0.08)' },
+  };
+}
+
+function onMouseMove(e) {
+  if (!chart) return;
+
+  // Pan logic: if dragging, shift zoom window
+  if (isPanning) {
+    var area = chart.chartArea;
+    var canvasWidth = area.right - area.left;
+    var dxPx = e.clientX - panStartX;
+    var dxFrac = dxPx / canvasWidth * (panStartZoomEnd - panStartZoomStart);
+    var ns = panStartZoomStart - dxFrac;
+    var ne = panStartZoomEnd   - dxFrac;
+    if (ns < 0) { ne -= ns; ns = 0; }
+    if (ne > 1) { ns -= (ne - 1); ne = 1; }
+    zoomStart = Math.max(0, ns);
+    zoomEnd   = Math.min(1, ne);
+    buildChart();
+    return;
+  }
+
+  var rect = e.target.getBoundingClientRect();
+  var x = e.clientX - rect.left;
+  var y = e.clientY - rect.top;
+  var area = chart.chartArea;
+  if (x < area.left || x > area.right || y < area.top || y > area.bottom) {
+    document.getElementById('tooltip').style.display = 'none';
+    document.getElementById('crosshair').style.display = 'none';
+    return;
+  }
+  var pct = (x - area.left) / (area.right - area.left);
+  var n = chart.data.labels.length;
+  var idx = Math.max(0, Math.min(n - 1, Math.round(pct * (n - 1))));
+
+  var ch = document.getElementById('crosshair');
+  ch.style.display = 'block';
+  ch.style.left = (area.left + pct * (area.right - area.left)) + 'px';
+  ch.style.height = (area.bottom - area.top) + 'px';
+  ch.style.top = '16px';
+
+  var sliceStart = Math.floor(zoomStart * allData.length);
+  var row = allData[sliceStart + idx] || {};
+  var timeVal = typeof row['Time'] === 'number' ? row['Time'].toFixed(2) + 's' : (row['Time'] || '');
+
+  var html = '<div class="tt-time">t = ' + timeVal + ' &nbsp;<span style="color:var(--muted);font-size:10px">sample ' + (sliceStart + idx + 1) + '/' + allData.length + '</span></div>';
+
+  html += '<div class="tt-section">Engine</div>';
+  html += ttRow('RPM',        row['RPM'],        '',    '#e8562a', 0, false);
+  html += ttRow('Throttle 1', row['Throttle 1'], '%',   '#a78bfa', 1, false);
+  html += ttRow('Throttle 2', row['Throttle 2'], '%',   '#c4b5fd', 1, false);
+  html += ttRow('Ignition',   row['Ignition'],   'deg', '#e879f9', 1, false);
+
+  html += '<div class="tt-section">Fuel trims</div>';
+  html += ttRow('Adaptive 1',  row['Adaptive 1'],  '%',  '#f0a830', 1, true);
+  html += ttRow('Adaptive 2',  row['Adaptive 2'],  '%',  '#fb7185', 1, true);
+  html += ttRow('Injection 1', row['Injection 1'], 'ms', '#f97316', 3, false);
+  html += ttRow('Injection 2', row['Injection 2'], 'ms', '#fb923c', 3, false);
+
+  html += '<div class="tt-section">Lambda</div>';
+  html += ttRow('lam ECU 1', row['Lambda ECU 1'], 'V', '#34d399', 3, false);
+  html += ttRow('lam ECU 2', row['Lambda ECU 2'], 'V', '#22d3ee', 3, false);
+
+  html += '<div class="tt-section">Temps and pressures</div>';
+  html += ttRow('Water',   row['WaterT'], 'C',   '#60a5fa', 1, false);
+  html += ttRow('Air',     row['AirT'],   'C',   '#93c5fd', 1, false);
+  html += ttRow('Oil',     row['OilP'],   'psi', '#fbbf24', 0, false);
+  html += ttRow('Battery', row['BattV'],  'V',   '#86efac', 2, false);
+
+  html += '<div class="tt-section">Status</div>';
+  html += '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:2px;">';
+  STATUS_KEYS.forEach(function(k) {
+    var ok = row[k] === 'OK' || row[k] === true || row[k] === 1 || String(row[k]).toLowerCase() === 'true' || String(row[k]).toLowerCase() === 'ok';
+    var short = k.replace(' OK','').replace('WaterTemp','H2O').replace('Lambda 1','lam1').replace('Lambda 2','lam2');
+    html += '<span class="tt-status ' + (ok ? 'tt-ok' : 'tt-fail') + '">' + (ok ? 'OK' : 'FAIL') + ' ' + short + '</span>';
+  });
+  html += '</div>';
+
+  if (trendMode !== 'off' && Object.keys(trendData).length > 0) {
+    html += '<div class="tt-trend-block"><div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-bottom:4px">Trend (visible range)</div>';
+    CHANNELS.filter(function(c) { return activeChannels.has(c.key) && trendData[c.key]; }).forEach(function(c) {
+      var td = trendData[c.key];
+      html += '<div class="tt-trend-row"><span class="tt-trend-label"><span style="width:6px;height:6px;border-radius:50%;background:' + c.color + ';display:inline-block;flex-shrink:0"></span>' + c.label + '</span><span class="tt-trend-val ' + td.cls + '">' + td.text + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+  var tt = document.getElementById('tooltip');
+  tt.innerHTML = html;
+  tt.style.display = (valuesMode === 'both') ? 'block' : 'none';
+  var tw = 275, th = 500;
+  var tx = e.clientX + 18, ty = e.clientY - 20;
+  if (tx + tw > window.innerWidth - 10)  tx = e.clientX - tw - 18;
+  if (ty + th > window.innerHeight - 10) ty = window.innerHeight - th - 10;
+  tt.style.left = tx + 'px';
+  tt.style.top  = ty + 'px';
+
+  updateStrip(row);
+}
+
+function ttRow(label, val, unit, color, decimals, highlight) {
+  if (val === undefined || val === null || (typeof val === 'number' && isNaN(val))) return '';
+  var disp = typeof val === 'number' ? val.toFixed(decimals) : val;
+  var c2 = (highlight && typeof val === 'number' && val < -15) ? '#f87171' : '#e8e6e1';
+  return '<div class="tt-row"><span class="tt-label"><span class="tt-dot" style="background:' + color + '"></span>' + label + '</span><span class="tt-val" style="color:' + c2 + '">' + disp + unit + '</span></div>';
+}
+
+function toggleValues() {
+  // Strip is always visible. Toggle only adds/removes the hover tooltip on top.
+  valuesMode = valuesMode === 'strip' ? 'both' : 'strip';
+  var btn = document.getElementById('valBtn');
+  btn.textContent = valuesMode === 'both' ? 'Tooltip: On' : 'Tooltip: Off';
+  if (valuesMode === 'both') btn.classList.add('on'); else btn.classList.remove('on');
+}
+
+function updateStrip(row) {
+  var strip = document.getElementById('valStrip');
+  var statusEl = document.getElementById('valStatus');
+
+  var html = '';
+  CHANNELS.filter(function(c){ return activeChannels.has(c.key); }).forEach(function(ch){
+    var val = row[ch.key];
+    var dec = ch.unit==='psi'||ch.unit==='' ? 0 : ch.key.indexOf('Lambda')>=0 ? 3 : ch.unit==='ms' ? 3 : 1;
+    var disp = typeof val==='number' ? val.toFixed(dec) : '-';
+    var isAlert = ch.key.indexOf('Adaptive')>=0 && typeof val==='number' && val < -15;
+    html += '<div class="val-item">';
+    html += '<span class="val-dot" style="background:'+ch.color+'"></span>';
+    html += '<span class="val-label">'+ch.label+'</span>';
+    html += '<span class="val-num'+(isAlert?' alert':'')+'">'+disp+ch.unit+'</span>';
+    html += '</div>';
+  });
+  var t = typeof row['Time']==='number' ? row['Time'].toFixed(1)+'s' : '-';
+  html += '<div class="val-item" style="margin-left:auto"><span class="val-label" style="color:var(--accent)">t='+t+'</span></div>';
+  strip.innerHTML = html;
+
+  var shtml = '';
+  var STATUS_KEYS_LOCAL = ['AFR123 OK','AFR456 OK','Lambda 1 OK','Lambda 2 OK','Battery OK','WaterTemp OK'];
+  STATUS_KEYS_LOCAL.forEach(function(k){
+    var v = row[k];
+    var ok = v==='OK'||v===true||v===1||String(v).toLowerCase()==='ok'||String(v).toLowerCase()==='true';
+    var short = k.replace(' OK','').replace('WaterTemp','H2O').replace('Lambda 1','lam1').replace('Lambda 2','lam2');
+    shtml += '<span class="sflag '+(ok?'sflag-ok':'sflag-fail')+'">'+(ok?'OK':'FAIL')+' '+short+'</span>';
+  });
+  statusEl.innerHTML = shtml;
+}
+
+function buildChannelButtons() {
+  document.querySelectorAll('.ch-btn').forEach(function(b) { b.remove(); });
+  var divider = document.getElementById('divider1');
+  CHANNELS.forEach(function(ch) {
+    var btn = document.createElement('button');
+    var on = activeChannels.has(ch.key);
+    btn.className = 'ch-btn';
+    btn.textContent = ch.label;
+    btn.style.borderColor = on ? ch.color : '';
+    btn.style.color = on ? ch.color : '';
+    btn.onclick = function() {
+      if (activeChannels.has(ch.key)) { activeChannels.delete(ch.key); } else { activeChannels.add(ch.key); }
+      buildChannelButtons();
+      buildChart();
+    };
+    document.getElementById('controls').insertBefore(btn, divider);
+  });
+}
+
+function resetZoom() { zoomStart = 0; zoomEnd = 1; buildChart(); }
+function zoomIn()    { var m = (zoomStart+zoomEnd)/2, r = (zoomEnd-zoomStart)*0.35; zoomStart = Math.max(0,m-r); zoomEnd = Math.min(1,m+r); buildChart(); }
+function zoomOut()   { var m = (zoomStart+zoomEnd)/2, r = (zoomEnd-zoomStart)*0.7;  zoomStart = Math.max(0,m-r); zoomEnd = Math.min(1,m+r); buildChart(); }
+
+function parseCSV(text) {
+  var lines = text.trim().split('\n');
+  var headers = lines[0].split(';').map(function(h) { return h.trim(); });
+  return lines.slice(1).map(function(line) {
+    var vals = line.split(';');
+    var row = {};
+    headers.forEach(function(h, i) {
+      var raw = (vals[i] || '').trim().replace(',', '.');
+      var n = parseFloat(raw);
+      row[h] = isNaN(n) ? raw : n;
+    });
+    return row;
+  }).filter(function(r) { return !isNaN(r['RPM']); });
+}
+
+function loadFile(file) {
+  var reader = new FileReader();
+  reader.onload = function(ev) {
+    allData = parseCSV(ev.target.result);
+    if (!allData.length) { alert('Could not parse CSV. Check it is a MBETool semicolon-separated log.'); return; }
+    document.getElementById('dropzone').style.display = 'none';
+    document.getElementById('app').style.display = 'flex';
+    document.getElementById('headerFilename').textContent = file.name;
+    document.getElementById('headerFilename').style.display = '';
+    document.getElementById('headerSamples').textContent = allData.length + ' samples';
+    document.getElementById('headerSamples').style.display = '';
+    zoomStart = 0; zoomEnd = 1;
+    buildChannelButtons();
+    buildChart();
+  };
+  reader.readAsText(file);
+}
+
+var dropBox = document.getElementById('dropBox');
+dropBox.addEventListener('click', function() { document.getElementById('fileInput').click(); });
+dropBox.addEventListener('dragover', function(e) { e.preventDefault(); dropBox.classList.add('drag-over'); });
+dropBox.addEventListener('dragleave', function() { dropBox.classList.remove('drag-over'); });
+dropBox.addEventListener('drop', function(e) { e.preventDefault(); dropBox.classList.remove('drag-over'); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
+document.getElementById('fileInput').addEventListener('change', function(e) { if (e.target.files[0]) loadFile(e.target.files[0]); });
+</script>
+</body>
+</html>

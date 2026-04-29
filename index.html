@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TVR MBETool — Log Tools</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&family=Syne:wght@400;600;800&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0c0f; --surface: #111318; --surface2: #181c23;
+    --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.14);
+    --accent: #e8562a; --blue: #3b82f6;
+    --text: #e8e6e1; --muted: #6b7280;
+    --mono: 'JetBrains Mono', monospace; --sans: 'Syne', sans-serif;
+  }
+  body {
+    background: var(--bg); color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    padding: 40px 20px;
+  }
+
+  .logo {
+    font-family: var(--sans); font-weight: 800; font-size: 22px;
+    letter-spacing: -0.02em; margin-bottom: 6px; text-align: center;
+  }
+  .logo span { color: var(--accent); }
+  .tagline { color: var(--muted); font-size: 12px; margin-bottom: 56px; text-align: center; letter-spacing: 0.04em; }
+
+  .cards { display: flex; gap: 24px; flex-wrap: wrap; justify-content: center; }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border2);
+    border-radius: 14px;
+    padding: 40px 40px 32px;
+    width: 280px;
+    text-decoration: none;
+    color: var(--text);
+    display: flex; flex-direction: column; align-items: flex-start;
+    transition: border-color 0.2s, background 0.2s, transform 0.15s;
+    cursor: pointer;
+  }
+  .card:hover { transform: translateY(-3px); background: var(--surface2); }
+  .card-a:hover { border-color: var(--accent); }
+  .card-b:hover { border-color: var(--blue); }
+
+  .card-icon {
+    font-size: 32px; margin-bottom: 20px;
+    width: 56px; height: 56px; border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .card-a .card-icon { background: rgba(232,86,42,0.12); }
+  .card-b .card-icon { background: rgba(59,130,246,0.12); }
+
+  .card-title {
+    font-family: var(--sans); font-weight: 800; font-size: 18px;
+    margin-bottom: 8px; letter-spacing: -0.01em;
+  }
+  .card-a .card-title { color: var(--accent); }
+  .card-b .card-title { color: var(--blue); }
+
+  .card-desc { color: var(--muted); font-size: 12px; line-height: 1.7; margin-bottom: 24px; flex: 1; }
+
+  .card-features { width: 100%; border-top: 1px solid var(--border); padding-top: 16px; }
+  .feat { display: flex; align-items: center; gap: 8px; font-size: 11px; color: var(--muted); margin-bottom: 7px; }
+  .feat-dot { width: 4px; height: 4px; border-radius: 50%; flex-shrink: 0; }
+  .card-a .feat-dot { background: var(--accent); }
+  .card-b .feat-dot { background: var(--blue); }
+
+  .arrow {
+    margin-top: 20px; align-self: flex-end;
+    font-size: 11px; font-family: var(--sans); font-weight: 600;
+    letter-spacing: 0.06em; text-transform: uppercase;
+    display: flex; align-items: center; gap: 6px;
+    opacity: 0.5; transition: opacity 0.2s;
+  }
+  .card:hover .arrow { opacity: 1; }
+  .card-a .arrow { color: var(--accent); }
+  .card-b .arrow { color: var(--blue); }
+
+  footer { margin-top: 56px; font-size: 10px; color: var(--muted); text-align: center; opacity: 0.2; }
+</style>
+</head>
+<body>
+
+<div class="logo">TVR <span>MBE</span> Log Tools</div>
+<div class="tagline">MBETool diagnostic log viewer &amp; comparator</div>
+
+<div class="cards">
+
+  <a class="card card-a" href="viewer.html">
+    <div class="card-icon">📈</div>
+    <div class="card-title">Log Viewer</div>
+    <div class="card-desc">
+      Load a single MBETool CSV log and inspect all engine parameters interactively over time.
+    </div>
+    <div class="card-features">
+      <div class="feat"><span class="feat-dot"></span>14 channels — RPM, adaptives, lambda, temps, oil</div>
+      <div class="feat"><span class="feat-dot"></span>Hover crosshair with tooltip or values strip</div>
+      <div class="feat"><span class="feat-dot"></span>Scroll to zoom · drag to pan</div>
+      <div class="feat"><span class="feat-dot"></span>Trendlines — off / both / trend only</div>
+      <div class="feat"><span class="feat-dot"></span>Status flags — AFR, lambda, battery, water</div>
+    </div>
+    <div class="arrow">Open viewer ›</div>
+  </a>
+
+  <a class="card card-b" href="compare.html">
+    <div class="card-icon">📊</div>
+    <div class="card-title">Comparator</div>
+    <div class="card-desc">
+      Load two logs side by side. Hover, zoom and pan are synchronised across both panels simultaneously.
+    </div>
+    <div class="card-features">
+      <div class="feat"><span class="feat-dot"></span>Two logs top and bottom, fully synchronised</div>
+      <div class="feat"><span class="feat-dot"></span>Values strip always visible below each graph</div>
+      <div class="feat"><span class="feat-dot"></span>Same zoom / pan applies to both panels</div>
+      <div class="feat"><span class="feat-dot"></span>Trendlines — off / both / trend only</div>
+      <div class="feat"><span class="feat-dot"></span>Swap A/B without reloading files</div>
+    </div>
+    <div class="arrow">Open comparator ›</div>
+  </a>
+
+</div>
+
+<footer>Drop CSV files directly onto the tool — all processing happens locally in your browser · no data leaves your network</footer>
+
+</body>
+</html>

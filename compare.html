@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TVR MBETool Log Comparator</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;700&family=Syne:wght@400;600;800&display=swap');
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root {
+    --bg: #0a0c0f; --surface: #111318; --surface2: #181c23; --surface3: #1e2330;
+    --border: rgba(255,255,255,0.07); --border2: rgba(255,255,255,0.12);
+    --accent: #e8562a; --accent2: #f0a830; --blue: #3b82f6;
+    --text: #e8e6e1; --muted: #6b7280;
+    --mono: 'JetBrains Mono', monospace; --sans: 'Syne', sans-serif;
+  }
+  body { background: var(--bg); color: var(--text); font-family: var(--mono); font-size: 12px; min-height: 100vh; overflow-x: hidden; }
+
+  /* ── Header ── */
+  header { display: flex; align-items: center; justify-content: space-between; padding: 14px 24px; border-bottom: 1px solid var(--border); background: var(--surface); flex-shrink: 0; }
+  .logo { font-family: var(--sans); font-weight: 800; font-size: 17px; letter-spacing: -0.02em; }
+  .logo span { color: var(--accent); }
+  .logo sub { font-family: var(--mono); font-size: 10px; font-weight: 400; color: var(--muted); margin-left: 6px; vertical-align: middle; }
+
+  /* ── Layout ── */
+  #setup { display: flex; align-items: center; justify-content: center; min-height: calc(100vh - 52px); gap: 32px; padding: 40px; flex-wrap: wrap; }
+  .drop-card { background: var(--surface); border: 1.5px dashed var(--border2); border-radius: 12px; padding: 40px 48px; cursor: pointer; transition: border-color 0.2s, background 0.2s; text-align: center; min-width: 260px; }
+  .drop-card:hover, .drop-card.drag-over { border-color: var(--accent); background: rgba(232,86,42,0.04); }
+  .drop-card.loaded { border-style: solid; border-color: #34d399; background: rgba(52,211,153,0.04); }
+  .drop-num { font-family: var(--sans); font-size: 36px; font-weight: 800; color: var(--border2); margin-bottom: 8px; }
+  .drop-card.loaded .drop-num { color: #34d399; }
+  .drop-title { font-family: var(--sans); font-size: 15px; font-weight: 600; margin-bottom: 6px; }
+  .drop-sub { color: var(--muted); font-size: 11px; line-height: 1.6; }
+  .drop-fname { color: #34d399; font-size: 11px; margin-top: 8px; word-break: break-all; }
+  .vs-label { font-family: var(--sans); font-size: 28px; font-weight: 800; color: var(--border2); }
+  .start-btn { padding: 10px 28px; background: var(--accent); color: #fff; border: none; border-radius: 6px; font-family: var(--sans); font-size: 14px; font-weight: 600; cursor: pointer; opacity: 0.4; pointer-events: none; transition: opacity 0.2s; margin-top: 16px; }
+  .start-btn.ready { opacity: 1; pointer-events: all; }
+  #fileInput1, #fileInput2 { display: none; }
+
+  /* ── Main App ── */
+  #app { display: none; flex-direction: column; height: calc(100vh - 52px); }
+
+  /* ── Controls bar ── */
+  #controls { display: flex; align-items: center; gap: 8px; padding: 8px 16px; border-bottom: 1px solid var(--border); background: var(--surface); flex-wrap: wrap; flex-shrink: 0; }
+  .ctrl-label { font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; white-space: nowrap; }
+  .ch-btn { padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border2); background: transparent; color: var(--muted); font-family: var(--mono); font-size: 10px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .ch-btn:hover { border-color: rgba(255,255,255,0.25); color: var(--text); }
+  .divider { width: 1px; height: 18px; background: var(--border); margin: 0 2px; flex-shrink: 0; }
+  .ctrl-btn { padding: 3px 9px; border-radius: 4px; border: 1px solid var(--border2); background: transparent; color: var(--muted); font-family: var(--mono); font-size: 10px; cursor: pointer; transition: all 0.15s; white-space: nowrap; }
+  .ctrl-btn:hover { color: var(--text); border-color: rgba(255,255,255,0.25); }
+  .ctrl-btn.on { color: var(--accent); border-color: var(--accent); }
+
+  /* ── Chart panels ── */
+  #panels { flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden; }
+  .panel { display: flex; flex-direction: column; flex: 1; min-height: 0; border-bottom: 1px solid var(--border); }
+  .panel:last-child { border-bottom: none; }
+
+  .panel-header { display: flex; align-items: center; gap: 10px; padding: 5px 16px; background: var(--surface2); flex-shrink: 0; border-bottom: 1px solid var(--border); }
+  .panel-label { font-family: var(--sans); font-size: 11px; font-weight: 600; }
+  .panel-fname { font-size: 10px; color: var(--muted); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .panel-tag { font-size: 9px; padding: 1px 6px; border-radius: 3px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.06em; }
+  .tag-a { background: rgba(232,86,42,0.15); color: var(--accent); border: 1px solid rgba(232,86,42,0.3); }
+  .tag-b { background: rgba(59,130,246,0.15); color: var(--blue); border: 1px solid rgba(59,130,246,0.3); }
+
+  .chart-area { flex: 1; position: relative; min-height: 0; padding: 8px 12px 4px; }
+  .chart-area canvas { cursor: crosshair !important; }
+  .crosshair-line { position: absolute; width: 1px; background: rgba(232,86,42,0.5); pointer-events: none; display: none; top: 8px; }
+
+  /* ── Values strip below each chart ── */
+  .values-strip {
+    display: flex; flex-wrap: wrap; gap: 2px 12px;
+    padding: 5px 16px 6px;
+    background: var(--surface);
+    border-top: 1px solid var(--border);
+    flex-shrink: 0;
+  }
+  .val-item { display: flex; align-items: baseline; gap: 5px; }
+  .val-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
+  .val-label { font-size: 10px; color: var(--muted); }
+  .val-num { font-size: 12px; font-weight: 500; color: var(--text); font-family: var(--mono); min-width: 42px; }
+  .val-num.alert { color: #f87171; }
+  .status-row { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px 16px 5px; background: var(--surface); border-top: 1px solid var(--border); flex-shrink: 0; }
+  .sflag { font-size: 10px; padding: 1px 6px; border-radius: 3px; }
+  .sflag-ok   { background: rgba(74,222,128,0.1);  color: #4ade80; }
+  .sflag-fail { background: rgba(248,113,113,0.1); color: #f87171; }
+
+  /* ── Trendline window selector ── */
+  #trendWindow { padding: 3px 6px; border-radius: 4px; border: 1px solid var(--border2); background: var(--surface2); color: var(--muted); font-family: var(--mono); font-size: 10px; cursor: pointer; display: none; }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">TVR <span>MBE</span><sub>log comparator</sub></div>
+  <div id="headerInfo" style="font-size:11px;color:var(--muted)"></div>
+</header>
+
+<!-- Setup screen -->
+<div id="setup">
+  <div class="drop-card" id="drop1">
+    <div class="drop-num">A</div>
+    <div class="drop-title">Log file A</div>
+    <div class="drop-sub">First log (top panel)</div>
+    <div class="drop-fname" id="fname1">Drop CSV here or click</div>
+  </div>
+  <input type="file" id="fileInput1" accept=".csv">
+
+  <div class="vs-label">vs</div>
+
+  <div class="drop-card" id="drop2">
+    <div class="drop-num">B</div>
+    <div class="drop-title">Log file B</div>
+    <div class="drop-sub">Second log (bottom panel)</div>
+    <div class="drop-fname" id="fname2">Drop CSV here or click</div>
+  </div>
+  <input type="file" id="fileInput2" accept=".csv">
+
+  <div style="width:100%;display:flex;justify-content:center;margin-top:8px;">
+    <button class="start-btn" id="startBtn" onclick="startApp()">Compare logs</button>
+  </div>
+</div>
+
+<!-- Main app -->
+<div id="app">
+  <div id="controls">
+    <span class="ctrl-label">Channels</span>
+    <div class="divider" id="divider1"></div>
+    <span class="ctrl-label">Trendlines</span>
+    <button class="ctrl-btn" id="trendBtn" onclick="toggleTrend()">Off</button>
+    <select id="trendWindow" onchange="rebuildBoth()">
+      <option value="0">Full range</option>
+      <option value="50">50 pts rolling</option>
+      <option value="100" selected>100 pts rolling</option>
+      <option value="200">200 pts rolling</option>
+    </select>
+    <div class="divider"></div>
+    <span class="ctrl-label">Zoom</span>
+    <button class="ctrl-btn" onclick="resetZoom()">Reset</button>
+    <button class="ctrl-btn" onclick="zoomStep(-0.3)">+ In</button>
+    <button class="ctrl-btn" onclick="zoomStep(0.3)">- Out</button>
+    <div class="divider"></div>
+    <button class="ctrl-btn" onclick="swapLogs()" title="Swap which log is on top">Swap A/B</button>
+  </div>
+
+  <div id="panels">
+    <!-- Panel A -->
+    <div class="panel" id="panelA">
+      <div class="panel-header">
+        <span class="panel-tag tag-a">A</span>
+        <span class="panel-label" id="labelA">Log A</span>
+        <span class="panel-fname" id="fnameA"></span>
+        <span id="samplesA" style="font-size:10px;color:var(--muted)"></span>
+      </div>
+      <div class="chart-area" id="areaA">
+        <div class="crosshair-line" id="xhA"></div>
+        <canvas id="chartA"></canvas>
+      </div>
+      <div class="values-strip" id="stripA"></div>
+      <div class="status-row" id="statusA"></div>
+    </div>
+
+    <!-- Panel B -->
+    <div class="panel" id="panelB">
+      <div class="panel-header">
+        <span class="panel-tag tag-b">B</span>
+        <span class="panel-label" id="labelB">Log B</span>
+        <span class="panel-fname" id="fnameB"></span>
+        <span id="samplesB" style="font-size:10px;color:var(--muted)"></span>
+      </div>
+      <div class="chart-area" id="areaB">
+        <div class="crosshair-line" id="xhB"></div>
+        <canvas id="chartB"></canvas>
+      </div>
+      <div class="values-strip" id="stripB"></div>
+      <div class="status-row" id="statusB"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+var CHANNELS = [
+  { key: 'RPM',          label: 'RPM',      unit: '',    color: '#e8562a', yAxis: 'rpm',  def: true  },
+  { key: 'Adaptive 1',   label: 'Adap1',    unit: '%',   color: '#f0a830', yAxis: 'pct',  def: true  },
+  { key: 'Adaptive 2',   label: 'Adap2',    unit: '%',   color: '#fb7185', yAxis: 'pct',  def: true  },
+  { key: 'Lambda ECU 1', label: 'lam1',     unit: 'V',   color: '#34d399', yAxis: 'lam',  def: true  },
+  { key: 'Lambda ECU 2', label: 'lam2',     unit: 'V',   color: '#22d3ee', yAxis: 'lam',  def: true  },
+  { key: 'Throttle 1',   label: 'TPS1',     unit: '%',   color: '#a78bfa', yAxis: 'tps',  def: false },
+  { key: 'Throttle 2',   label: 'TPS2',     unit: '%',   color: '#c4b5fd', yAxis: 'tps',  def: false },
+  { key: 'Injection 1',  label: 'Inj1',     unit: 'ms',  color: '#f97316', yAxis: 'inj',  def: false },
+  { key: 'Injection 2',  label: 'Inj2',     unit: 'ms',  color: '#fb923c', yAxis: 'inj',  def: false },
+  { key: 'WaterT',       label: 'Water',    unit: 'C',   color: '#60a5fa', yAxis: 'temp', def: false },
+  { key: 'AirT',         label: 'Air',      unit: 'C',   color: '#93c5fd', yAxis: 'temp', def: false },
+  { key: 'OilP',         label: 'Oil',      unit: 'psi', color: '#fbbf24', yAxis: 'oil',  def: false },
+  { key: 'Ignition',     label: 'Ign',      unit: 'deg', color: '#e879f9', yAxis: 'ign',  def: false },
+  { key: 'BattV',        label: 'Batt',     unit: 'V',   color: '#86efac', yAxis: 'batt', def: false },
+];
+var STATUS_KEYS = ['AFR123 OK','AFR456 OK','Lambda 1 OK','Lambda 2 OK','Battery OK','WaterTemp OK'];
+
+var dataA = [], dataB = [];
+var fileNameA = '', fileNameB = '';
+var charts = { A: null, B: null };
+var activeChannels = new Set(CHANNELS.filter(function(c){ return c.def; }).map(function(c){ return c.key; }));
+var zoomStart = 0, zoomEnd = 1;
+var trendMode = 'off'; // 'off' | 'both' | 'trend'
+var isPanning = false, panStartX = 0, panStartZS = 0, panStartZE = 0;
+var loadedA = false, loadedB = false;
+var swapped = false;
+
+/* ── CSV parse ── */
+function parseCSV(text) {
+  var lines = text.trim().split('\n');
+  var headers = lines[0].split(';').map(function(h){ return h.trim(); });
+  return lines.slice(1).map(function(line){
+    var vals = line.split(';');
+    var row = {};
+    headers.forEach(function(h,i){
+      var raw = (vals[i]||'').trim().replace(',','.');
+      var n = parseFloat(raw);
+      row[h] = isNaN(n) ? (vals[i]||'').trim() : n;
+    });
+    return row;
+  }).filter(function(r){ return !isNaN(r['RPM']); });
+}
+
+/* ── Trend helpers ── */
+function linReg(values) {
+  var pts = [];
+  for (var i=0;i<values.length;i++) { if (values[i]!==null && !isNaN(values[i])) pts.push({x:i,y:values[i]}); }
+  if (pts.length<2) return null;
+  var n=pts.length, sx=0,sy=0,sxy=0,sx2=0;
+  for (var j=0;j<n;j++){sx+=pts[j].x;sy+=pts[j].y;sxy+=pts[j].x*pts[j].y;sx2+=pts[j].x*pts[j].x;}
+  var D=n*sx2-sx*sx; if(D===0) return null;
+  var slope=(n*sxy-sx*sy)/D, intercept=(sy-slope*sx)/n;
+  return {slope:slope,intercept:intercept};
+}
+function buildRollingTrend(values, W) {
+  var n=values.length;
+  if (!W||W<=0) {
+    var r=linReg(values); if(!r) return new Array(n).fill(null);
+    return values.map(function(_,i){ return parseFloat((r.slope*i+r.intercept).toFixed(4)); });
+  }
+  var half=Math.floor(W/2), result=[];
+  for (var i=0;i<n;i++) {
+    var s=Math.max(0,i-half), e=Math.min(n-1,i+half);
+    var sl=values.slice(s,e+1), r=linReg(sl);
+    if(!r){result.push(null);continue;}
+    result.push(parseFloat((r.slope*(i-s)+r.intercept).toFixed(4)));
+  }
+  return result;
+}
+
+/* ── Build one chart ── */
+function buildChart(which) {
+  var data = which==='A' ? dataA : dataB;
+  var canvasId = 'chart'+which;
+  var n = data.length;
+  var s = Math.floor(zoomStart*n), e = Math.ceil(zoomEnd*n);
+  var slice = data.slice(s,e);
+  var labels = slice.map(function(r){ return typeof r['Time']==='number' ? r['Time'].toFixed(1) : r['Time']; });
+  var W = parseInt(document.getElementById('trendWindow').value)||0;
+
+  var datasets = [];
+  CHANNELS.filter(function(ch){ return activeChannels.has(ch.key); }).forEach(function(ch){
+    var vals = slice.map(function(r){ return typeof r[ch.key]==='number' ? r[ch.key] : null; });
+    if (trendMode !== 'trend') {
+      datasets.push({
+        label: ch.label, data: vals,
+        borderColor: trendMode==='both' ? ch.color+'66' : ch.color,
+        backgroundColor: 'transparent',
+        borderWidth: trendMode==='both' ? 1 : 1.5,
+        pointRadius: 0, pointHoverRadius: 0,
+        tension: 0.2, yAxisID: ch.yAxis, spanGaps: true, order: 2,
+      });
+    }
+    if (trendMode !== 'off') {
+      var trend = buildRollingTrend(vals, W);
+      datasets.push({
+        label: ch.label+' trend', data: trend,
+        borderColor: trendMode==='trend' ? ch.color : ch.color+'cc',
+        backgroundColor: 'transparent',
+        borderWidth: trendMode==='trend' ? 2 : 2,
+        borderDash: trendMode==='trend' ? [] : [6,4],
+        pointRadius: 0, pointHoverRadius: 0,
+        tension: 0, yAxisID: ch.yAxis, spanGaps: true, order: 1,
+      });
+    }
+  });
+
+  var scales = {
+    x: { ticks:{color:'#4b5563',font:{family:"'JetBrains Mono'",size:9},maxTicksLimit:10}, grid:{color:'rgba(255,255,255,0.04)'}, border:{color:'rgba(255,255,255,0.08)'} },
+    rpm:  makeScale('#e8562a',false,0,6000),
+    pct:  makeScale('#f0a830',true,-45,30),
+    lam:  makeScale('#34d399',false,0,1.1),
+    tps:  makeScale('#a78bfa',false,0,110),
+    inj:  makeScale('#f97316',false,0,8),
+    temp: makeScale('#60a5fa',false,0,120),
+    oil:  makeScale('#fbbf24',false,0,80),
+    ign:  makeScale('#e879f9',true,-70,0),
+    batt: makeScale('#86efac',false,10,16),
+  };
+  var activeAxes = new Set(CHANNELS.filter(function(c){ return activeChannels.has(c.key); }).map(function(c){ return c.yAxis; }));
+  Object.keys(scales).forEach(function(k){ if(k!=='x') scales[k].display=activeAxes.has(k); });
+
+  if (charts[which]) { charts[which].destroy(); charts[which]=null; }
+  charts[which] = new Chart(document.getElementById(canvasId), {
+    type: 'line',
+    data: { labels: labels, datasets: datasets },
+    options: {
+      responsive: true, maintainAspectRatio: false, animation: false,
+      interaction: { mode: 'index', intersect: false },
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: scales,
+    }
+  });
+
+}
+
+function makeScale(color,isLeft,min,max){
+  return {
+    type:'linear', position:isLeft?'left':'right', display:true, min:min, max:max,
+    ticks:{color:color,font:{family:"'JetBrains Mono'",size:9},maxTicksLimit:5},
+    grid:{drawOnChartArea:isLeft,color:'rgba(255,255,255,0.04)'},
+    border:{color:'rgba(255,255,255,0.08)'},
+  };
+}
+
+function rebuildBoth() { buildChart('A'); buildChart('B'); }
+
+/* ── Attach mouse events to a canvas ── */
+function attachAllEvents() {
+  ['A','B'].forEach(function(which) {
+    var canvas = document.getElementById('chart'+which);
+    canvas.style.cursor = 'crosshair';
+    canvas.addEventListener('mousemove', function(e){ onMove(e, which); });
+    canvas.addEventListener('mouseleave', function(){ hideCrosshairs(); });
+    canvas.addEventListener('mousedown', function(e){
+      if (e.button!==0) return;
+      isPanning=true; panStartX=e.clientX; panStartZS=zoomStart; panStartZE=zoomEnd;
+      canvas.style.cursor='grabbing';
+      document.getElementById('chart'+( which==='A'?'B':'A')).style.cursor='grabbing';
+    });
+    canvas.addEventListener('mouseup', function(){
+      isPanning=false;
+      canvas.style.cursor='crosshair';
+      document.getElementById('chart'+( which==='A'?'B':'A')).style.cursor='crosshair';
+    });
+    canvas.addEventListener('wheel', function(ev){
+      ev.preventDefault();
+      var ch = charts[which]; if(!ch) return;
+      var area=ch.chartArea, rect=canvas.getBoundingClientRect();
+      var mousePct=Math.max(0,Math.min(1,(ev.clientX-rect.left-area.left)/(area.right-area.left)));
+      var delta=ev.deltaY>0?0.15:-0.15;
+      var range=zoomEnd-zoomStart;
+      var newRange=Math.min(1,Math.max(0.02,range+delta*range));
+      var anchor=zoomStart+mousePct*range;
+      zoomStart=Math.max(0,anchor-mousePct*newRange);
+      zoomEnd=Math.min(1,zoomStart+newRange);
+      if(zoomEnd>1){zoomEnd=1;zoomStart=Math.max(0,1-newRange);}
+      rebuildBoth();
+    },{passive:false});
+  });
+}
+
+function hideCrosshairs(){
+  document.getElementById('xhA').style.display='none';
+  document.getElementById('xhB').style.display='none';
+}
+
+function onMove(e, which) {
+  // Pan takes priority
+  if (isPanning) {
+    var ch = charts[which]; if(!ch) return;
+    var area=ch.chartArea, canvasW=area.right-area.left;
+    var dxFrac=(e.clientX-panStartX)/canvasW*(panStartZE-panStartZS);
+    var ns=panStartZS-dxFrac, ne=panStartZE-dxFrac;
+    if(ns<0){ne-=ns;ns=0;} if(ne>1){ns-=(ne-1);ne=1;}
+    zoomStart=Math.max(0,ns); zoomEnd=Math.min(1,ne);
+    rebuildBoth();
+    return;
+  }
+
+  // Crosshair + values update for BOTH panels
+  ['A','B'].forEach(function(w){
+    var ch = charts[w]; if(!ch) return;
+    var canvas = document.getElementById('chart'+w);
+    var rect = canvas.getBoundingClientRect();
+    // Use same x fraction for both
+    var srcCh = charts[which]; if(!srcCh) return;
+    var srcRect = document.getElementById('chart'+which).getBoundingClientRect();
+    var pct = Math.max(0,Math.min(1,(e.clientX-srcRect.left-srcCh.chartArea.left)/(srcCh.chartArea.right-srcCh.chartArea.left)));
+
+    var area = ch.chartArea;
+    var xPx = area.left + pct*(area.right-area.left);
+    var xh = document.getElementById('xh'+w);
+    xh.style.display='block';
+    xh.style.left=xPx+'px';
+    xh.style.height=(area.bottom-area.top)+'px';
+    xh.style.top='8px';
+
+    var data = w==='A' ? dataA : dataB;
+    var n = data.length;
+    var sliceStart = Math.floor(zoomStart*n);
+    var sliceLen = Math.ceil(zoomEnd*n)-sliceStart;
+    var idx = Math.max(0,Math.min(sliceLen-1,Math.round(pct*(sliceLen-1))));
+    var row = data[sliceStart+idx]||{};
+    updateStrip(w, row, sliceStart+idx, n);
+  });
+}
+
+/* ── Values strip ── */
+function updateStrip(which, row, idx, total) {
+  var strip = document.getElementById('strip'+which);
+  var statusEl = document.getElementById('status'+which);
+  var html = '';
+
+  CHANNELS.filter(function(c){ return activeChannels.has(c.key); }).forEach(function(ch){
+    var val = row[ch.key];
+    var disp = typeof val==='number' ? val.toFixed(ch.unit==='psi'||ch.unit===''?0:ch.unit==='V'&&ch.key.indexOf('Lambda')>=0?3:ch.unit==='ms'?3:1) : '-';
+    var isAlert = ch.key.indexOf('Adaptive')>=0 && typeof val==='number' && val<-15;
+    html += '<div class="val-item">';
+    html += '<span class="val-dot" style="background:'+ch.color+'"></span>';
+    html += '<span class="val-label">'+ch.label+'</span>';
+    html += '<span class="val-num'+(isAlert?' alert':'')+'">'+(disp==='NaN'?'-':disp)+ch.unit+'</span>';
+    html += '</div>';
+  });
+
+  // Time + sample indicator
+  var t = typeof row['Time']==='number' ? row['Time'].toFixed(1)+'s' : '-';
+  html += '<div class="val-item" style="margin-left:auto">';
+  html += '<span class="val-label" style="color:var(--accent)">t='+t+'</span>';
+  html += '<span class="val-num" style="color:var(--muted);font-size:10px;margin-left:4px">'+(idx+1)+'/'+total+'</span>';
+  html += '</div>';
+
+  strip.innerHTML = html;
+
+  // Status flags
+  var shtml = '';
+  STATUS_KEYS.forEach(function(k){
+    var v = row[k];
+    var ok = v==='OK' || v===true || v===1 || String(v).toLowerCase()==='ok' || String(v).toLowerCase()==='true';
+    var short = k.replace(' OK','').replace('WaterTemp','H2O').replace('Lambda 1','lam1').replace('Lambda 2','lam2');
+    shtml += '<span class="sflag '+(ok?'sflag-ok':'sflag-fail')+'">'+(ok?'OK':'FAIL')+' '+short+'</span>';
+  });
+  statusEl.innerHTML = shtml;
+}
+
+/* ── Channel buttons ── */
+function buildChannelButtons() {
+  document.querySelectorAll('.ch-btn').forEach(function(b){ b.remove(); });
+  var divider = document.getElementById('divider1');
+  CHANNELS.forEach(function(ch){
+    var btn = document.createElement('button');
+    var on = activeChannels.has(ch.key);
+    btn.className='ch-btn';
+    btn.textContent=ch.label;
+    btn.style.borderColor=on?ch.color:'';
+    btn.style.color=on?ch.color:'';
+    btn.onclick=function(){
+      if(activeChannels.has(ch.key)) activeChannels.delete(ch.key); else activeChannels.add(ch.key);
+      buildChannelButtons(); rebuildBoth();
+    };
+    document.getElementById('controls').insertBefore(btn,divider);
+  });
+}
+
+/* ── Trend toggle ── */
+function toggleTrend(){
+  var modes=['off','both','trend'];
+  trendMode=modes[(modes.indexOf(trendMode)+1)%3];
+  var btn=document.getElementById('trendBtn'), sel=document.getElementById('trendWindow');
+  var labels={'off':'Off','both':'Both','trend':'Trend only'};
+  btn.textContent=labels[trendMode];
+  if(trendMode!=='off') btn.classList.add('on'); else btn.classList.remove('on');
+  sel.style.display=trendMode!=='off'?'':'none';
+  rebuildBoth();
+}
+
+/* ── Zoom ── */
+function resetZoom(){ zoomStart=0;zoomEnd=1;rebuildBoth(); }
+function zoomStep(delta){
+  var range=zoomEnd-zoomStart;
+  var newRange=Math.min(1,Math.max(0.02,range+delta*range));
+  var mid=(zoomStart+zoomEnd)/2;
+  zoomStart=Math.max(0,mid-newRange/2);
+  zoomEnd=Math.min(1,mid+newRange/2);
+  rebuildBoth();
+}
+
+/* ── Swap logs ── */
+function swapLogs(){
+  var tmpData=dataA; dataA=dataB; dataB=tmpData;
+  var tmpName=fileNameA; fileNameA=fileNameB; fileNameB=tmpName;
+  document.getElementById('fnameA').textContent=fileNameA;
+  document.getElementById('fnameB').textContent=fileNameB;
+  document.getElementById('samplesA').textContent=dataA.length+' samples';
+  document.getElementById('samplesB').textContent=dataB.length+' samples';
+  rebuildBoth();
+}
+
+/* ── Start app ── */
+function startApp(){
+  document.getElementById('setup').style.display='none';
+  document.getElementById('app').style.display='flex';
+  document.getElementById('fnameA').textContent=fileNameA;
+  document.getElementById('fnameB').textContent=fileNameB;
+  document.getElementById('samplesA').textContent=dataA.length+' samples';
+  document.getElementById('samplesB').textContent=dataB.length+' samples';
+  buildChannelButtons();
+  rebuildBoth();
+  attachAllEvents();
+  // Init strips with first row
+  if(dataA.length) updateStrip('A',dataA[0],0,dataA.length);
+  if(dataB.length) updateStrip('B',dataB[0],0,dataB.length);
+}
+
+/* ── File loading ── */
+function loadFile(which, file){
+  var reader=new FileReader();
+  reader.onload=function(ev){
+    var parsed=parseCSV(ev.target.result);
+    if(!parsed.length){alert('Could not parse '+file.name);return;}
+    if(which==='A'){ dataA=parsed; fileNameA=file.name; loadedA=true; document.getElementById('fname1').textContent=file.name; document.getElementById('drop1').classList.add('loaded'); }
+    else            { dataB=parsed; fileNameB=file.name; loadedB=true; document.getElementById('fname2').textContent=file.name; document.getElementById('drop2').classList.add('loaded'); }
+    if(loadedA&&loadedB) document.getElementById('startBtn').classList.add('ready');
+  };
+  reader.readAsText(file);
+}
+
+function setupDrop(id, inputId, which){
+  var box=document.getElementById(id), inp=document.getElementById(inputId);
+  box.addEventListener('click',function(){ inp.click(); });
+  box.addEventListener('dragover',function(e){ e.preventDefault(); box.classList.add('drag-over'); });
+  box.addEventListener('dragleave',function(){ box.classList.remove('drag-over'); });
+  box.addEventListener('drop',function(e){ e.preventDefault(); box.classList.remove('drag-over'); if(e.dataTransfer.files[0]) loadFile(which,e.dataTransfer.files[0]); });
+  inp.addEventListener('change',function(e){ if(e.target.files[0]) loadFile(which,e.target.files[0]); });
+}
+
+setupDrop('drop1','fileInput1','A');
+setupDrop('drop2','fileInput2','B');
+</script>
+</body>
+</html>
