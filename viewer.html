@@ -81,6 +81,19 @@
   .sflag { font-size: 10px; padding: 1px 6px; border-radius: 3px; }
   .sflag-ok   { background: rgba(74,222,128,0.1);  color: #4ade80; }
   .sflag-fail { background: rgba(248,113,113,0.1); color: #f87171; }
+
+  /* ── Summary panel ── */
+  #summary, #summaryA, #summaryB { flex-shrink: 0; background: var(--surface); border-top: 1px solid var(--border); }
+  .sum-grid { display: grid; grid-template-columns: repeat(4,1fr); gap: 0; }
+  .sum-card { padding: 10px 14px; border-right: 1px solid var(--border); }
+  .sum-card:last-child { border-right: none; }
+  .sum-title { font-family: var(--sans); font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; }
+  .sum-row { display: flex; justify-content: space-between; align-items: baseline; padding: 2px 0; gap: 8px; }
+  .sum-label { font-size: 10px; color: var(--muted); white-space: nowrap; cursor: default; }
+  .sum-label [title] { text-decoration: underline dotted; }
+  .sum-val { font-size: 11px; font-weight: 500; font-family: var(--mono); white-space: nowrap; }
+  .sum-divider { border-top: 1px solid var(--border); margin: 5px 0; }
+  @media (max-width: 900px) { .sum-grid { grid-template-columns: 1fr 1fr; } }
 </style>
 </head>
 <body>
@@ -131,6 +144,7 @@
 
   <div class="values-strip" id="valStrip"></div>
   <div class="status-row" id="valStatus"></div>
+  <div id="summary"></div>
 </div>
 
 <div id="tooltip"></div>
@@ -521,8 +535,9 @@ function parseCSV(text) {
     var vals = line.split(';');
     var row = {};
     headers.forEach(function(h, i) {
-      var raw = (vals[i] || '').trim().replace(',', '.');
-      var n = parseFloat(raw);
+      var raw = (vals[i] || '').trim();
+      if (raw.indexOf(':') !== -1) { row[h] = raw; return; }
+      var n = parseFloat(raw.replace(',', '.'));
       row[h] = isNaN(n) ? raw : n;
     });
     return row;
@@ -543,6 +558,7 @@ function loadFile(file) {
     zoomStart = 0; zoomEnd = 1;
     buildChannelButtons();
     buildChart();
+    refreshSummary();
   };
   reader.readAsText(file);
 }
@@ -553,6 +569,214 @@ dropBox.addEventListener('dragover', function(e) { e.preventDefault(); dropBox.c
 dropBox.addEventListener('dragleave', function() { dropBox.classList.remove('drag-over'); });
 dropBox.addEventListener('drop', function(e) { e.preventDefault(); dropBox.classList.remove('drag-over'); if (e.dataTransfer.files[0]) loadFile(e.dataTransfer.files[0]); });
 document.getElementById('fileInput').addEventListener('change', function(e) { if (e.target.files[0]) loadFile(e.target.files[0]); });
+
+// Parse a Time value into seconds-since-midnight (handles both number and HH:MM:SS string)
+function parseTimeSec(v) {
+  if (typeof v === 'number') return v;
+  if (typeof v === 'string') {
+    var parts = v.trim().split(':');
+    if (parts.length === 3) {
+      return parseInt(parts[0])*3600 + parseInt(parts[1])*60 + parseFloat(parts[2]);
+    }
+    var n = parseFloat(v);
+    return isNaN(n) ? null : n;
+  }
+  return null;
+}
+
+function computeSummary(data) {
+  if (!data || !data.length) return null;
+  var n = data.length;
+
+  function col(key) { return data.map(function(r){ return typeof r[key]==='number' ? r[key] : null; }).filter(function(v){ return v!==null; }); }
+  function mean(arr) { return arr.length ? arr.reduce(function(a,b){return a+b;},0)/arr.length : null; }
+  function maxv(arr)  { return arr.length ? Math.max.apply(null,arr) : null; }
+  function minv(arr)  { return arr.length ? Math.min.apply(null,arr) : null; }
+
+  // Duration using parsed timestamps
+  var t0 = parseTimeSec(data[0]['Time']);
+  var t1 = parseTimeSec(data[data.length-1]['Time']);
+  var duration = (t0!==null && t1!==null && t1>t0) ? t1-t0 : null;
+
+  var rpm = col('RPM');
+  var maxRPM = maxv(rpm), meanRPM = mean(rpm);
+
+  var wt = col('WaterT');
+  var maxWater = maxv(wt);
+  var warmupIdx = null;
+  for (var i=0;i<data.length;i++) { if (typeof data[i]['WaterT']==='number' && data[i]['WaterT']>=80){ warmupIdx=i; break; } }
+  var warmupTime = null;
+  if (warmupIdx!==null) {
+    var wt0 = parseTimeSec(data[0]['Time']);
+    var wti = parseTimeSec(data[warmupIdx]['Time']);
+    if (wt0!==null && wti!==null) warmupTime = wti - wt0;
+  }
+
+  var a1 = col('Adaptive 1'), a2 = col('Adaptive 2');
+  var meanA1=mean(a1), meanA2=mean(a2);
+  var minA1=minv(a1), minA2=minv(a2);
+  var maxA1=maxv(a1), maxA2=maxv(a2);
+  var badA1 = a1.filter(function(v){return v<-15;}).length;
+  var badA2 = a2.filter(function(v){return v<-15;}).length;
+
+  var balanceSamples = [];
+  for (var i=0;i<data.length;i++) {
+    var v1=data[i]['Adaptive 1'], v2=data[i]['Adaptive 2'];
+    if (typeof v1==='number' && typeof v2==='number') balanceSamples.push(Math.abs(v1-v2));
+  }
+  var bankBalance = mean(balanceSamples);
+
+  function lambdaSwitching(key) {
+    var switches=0, lastRich=null;
+    for (var i=0;i<data.length;i++) {
+      var v=data[i][key];
+      if (typeof v!=='number') continue;
+      var rich = v>0.5;
+      if (lastRich!==null && rich!==lastRich) switches++;
+      lastRich=rich;
+    }
+    var freq = (duration && duration>0) ? switches/duration : null;
+    return { switches:switches, freq:freq };
+  }
+  var lsw1 = lambdaSwitching('Lambda ECU 1');
+  var lsw2 = lambdaSwitching('Lambda ECU 2');
+
+  var l1vals = data.map(function(r){return r['Lambda ECU 1'];}).filter(function(v){return typeof v==='number';});
+  var l2vals = data.map(function(r){return r['Lambda ECU 2'];}).filter(function(v){return typeof v==='number';});
+  var l1rich = l1vals.length ? l1vals.filter(function(v){return v>0.5;}).length/l1vals.length*100 : null;
+  var l2rich = l2vals.length ? l2vals.filter(function(v){return v>0.5;}).length/l2vals.length*100 : null;
+
+  var l1healthy = lsw1.freq!==null && lsw1.freq>=0.3 && l1rich!==null && l1rich>=35 && l1rich<=65;
+  var l2healthy = lsw2.freq!==null && lsw2.freq>=0.3 && l2rich!==null && l2rich>=35 && l2rich<=65;
+
+  var faultKeys = ['AFR123 OK','AFR456 OK','Lambda 1 OK','Lambda 2 OK','Battery OK','WaterTemp OK'];
+  var faults = {};
+  faultKeys.forEach(function(k){
+    var faultCount = data.filter(function(r){
+      var v=r[k]; return !(v==='OK'||v===true||v===1||String(v).toLowerCase()==='ok'||String(v).toLowerCase()==='true');
+    }).length;
+    faults[k] = { count:faultCount, pct: (faultCount/n*100).toFixed(1) };
+  });
+
+  return {
+    n:n, duration:duration, maxRPM:maxRPM, meanRPM:meanRPM,
+    maxWater:maxWater, warmupTime:warmupTime,
+    meanA1:meanA1, meanA2:meanA2, minA1:minA1, minA2:minA2, maxA1:maxA1, maxA2:maxA2,
+    badA1:badA1, badA2:badA2, badA1Pct:(badA1/n*100).toFixed(1), badA2Pct:(badA2/n*100).toFixed(1),
+    bankBalance:bankBalance, lsw1:lsw1, lsw2:lsw2,
+    l1rich:l1rich, l2rich:l2rich, l1healthy:l1healthy, l2healthy:l2healthy,
+    faults:faults,
+  };
+}
+
+
+function renderSummary(s, el) {
+  if (!s) { el.innerHTML='<div style="color:var(--muted);padding:12px">No data loaded</div>'; return; }
+
+  function fmt(v,d) { return v===null||v===undefined ? '-' : typeof v==='number' ? v.toFixed(d||0) : v; }
+  function pct(v) { return v===null ? '-' : v.toFixed(1)+'%'; }
+
+  // Bank balance score: 0=perfect, higher=worse
+  var balScore = s.bankBalance===null ? '-' : s.bankBalance.toFixed(1)+'%';
+  var balClass = s.bankBalance===null ? '' : s.bankBalance<5 ? 'ok' : s.bankBalance<10 ? 'warn' : 'bad';
+
+  // Lambda frequency health
+  function freqLabel(sw) {
+    if (sw.freq===null) return {text:'-',cls:''};
+    if (sw.freq<0.3) return {text:sw.freq.toFixed(2)+'/s (slow)',cls:'bad'};
+    if (sw.freq<0.5) return {text:sw.freq.toFixed(2)+'/s',cls:'warn'};
+    return {text:sw.freq.toFixed(2)+'/s',cls:'ok'};
+  }
+  var lf1=freqLabel(s.lsw1), lf2=freqLabel(s.lsw2);
+
+  // Lambda symmetry
+  function symLabel(r) {
+    if (r===null) return {text:'-',cls:''};
+    if (r>=40&&r<=60) return {text:r.toFixed(1)+'% rich',cls:'ok'};
+    if (r>=30&&r<=70) return {text:r.toFixed(1)+'% rich',cls:'warn'};
+    return {text:r.toFixed(1)+'% rich',cls:'bad'};
+  }
+  var ls1=symLabel(s.l1rich), ls2=symLabel(s.l2rich);
+
+  function cls(c){
+    return c==='ok'?'color:#4ade80':c==='warn'?'color:#f0a830':c==='bad'?'color:#f87171':'color:var(--muted)';
+  }
+  function adaptClass(v){
+    return typeof v==='number'&&v<-20?'color:#f87171':typeof v==='number'&&v<-15?'color:#f0a830':'color:#4ade80';
+  }
+
+  var dur = s.duration ? Math.round(s.duration)+'s' : '-';
+  var wup = s.warmupTime ? Math.round(s.warmupTime)+'s' : (s.maxWater&&s.maxWater<80?'never reached 80°C':'—');
+
+  var faultOrder = ['AFR123 OK','AFR456 OK','Lambda 1 OK','Lambda 2 OK','Battery OK','WaterTemp OK'];
+  var faultNames = {'AFR123 OK':'AFR 123','AFR456 OK':'AFR 456','Lambda 1 OK':'Lambda 1','Lambda 2 OK':'Lambda 2','Battery OK':'Battery','WaterTemp OK':'Water Temp'};
+
+  var html = '<div class="sum-grid">';
+
+  // Session
+  html += '<div class="sum-card">';
+  html += '<div class="sum-title">Session</div>';
+  html += sumRow('Samples',s.n,'','');
+  html += sumRow('Duration',dur,'','');
+  html += sumRow('Max RPM',Math.round(s.maxRPM||0),'','');
+  html += sumRow('Mean RPM',Math.round(s.meanRPM||0),'','');
+  html += sumRow('Max water',(s.maxWater?s.maxWater.toFixed(1):'-')+'°C',s.maxWater&&s.maxWater>=85?'ok':s.maxWater&&s.maxWater>=75?'warn':'bad','');
+  html += sumRow('Warm-up to 80°C',wup,s.warmupTime?'ok':s.maxWater&&s.maxWater<80?'bad':'warn','');
+  html += '</div>';
+
+  // Bank balance
+  html += '<div class="sum-card">';
+  html += '<div class="sum-title">Bank Balance</div>';
+  html += sumRow('Balance score',balScore,balClass,'Mean abs diff between banks — ideal &lt;5%');
+  html += '<div class="sum-divider"></div>';
+  html += sumRow('Adap 1 mean',pct(s.meanA1),s.meanA1<-15?'bad':s.meanA1<-10?'warn':'ok','');
+  html += sumRow('Adap 1 worst',pct(s.minA1),s.minA1<-25?'bad':s.minA1<-15?'warn':'ok','');
+  html += sumRow('Adap 1 &gt;-15%',s.badA1Pct+'% of log',s.badA1>0?s.badA1Pct>20?'bad':'warn':'ok','');
+  html += '<div class="sum-divider"></div>';
+  html += sumRow('Adap 2 mean',pct(s.meanA2),s.meanA2<-15?'bad':s.meanA2<-10?'warn':'ok','');
+  html += sumRow('Adap 2 worst',pct(s.minA2),s.minA2<-25?'bad':s.minA2<-15?'warn':'ok','');
+  html += sumRow('Adap 2 &gt;-15%',s.badA2Pct+'% of log',s.badA2>0?s.badA2Pct>20?'bad':'warn':'ok','');
+  html += '</div>';
+
+  // Lambda health
+  html += '<div class="sum-card">';
+  html += '<div class="sum-title">Lambda Health</div>';
+  html += sumRow('Bank 1 status',s.l1healthy?'Healthy':'Check',s.l1healthy?'ok':'bad','');
+  html += sumRow('Bank 1 switching',lf1.text,lf1.cls,'Crossings per second — healthy: 0.5–3/s');
+  html += sumRow('Bank 1 symmetry',ls1.text,ls1.cls,'% time reading rich — ideal 40–60%');
+  html += '<div class="sum-divider"></div>';
+  html += sumRow('Bank 2 status',s.l2healthy?'Healthy':'Check',s.l2healthy?'ok':'bad','');
+  html += sumRow('Bank 2 switching',lf2.text,lf2.cls,'Crossings per second — healthy: 0.5–3/s');
+  html += sumRow('Bank 2 symmetry',ls2.text,ls2.cls,'% time reading rich — ideal 40–60%');
+  html += '</div>';
+
+  // Faults
+  html += '<div class="sum-card">';
+  html += '<div class="sum-title">Fault Log</div>';
+  faultOrder.forEach(function(k){
+    var f=s.faults[k];
+    var ok=f.count===0;
+    html += sumRow(faultNames[k], ok?'OK':f.pct+'% faulty', ok?'ok':'bad', ok?'':f.count+' samples');
+  });
+  html += '</div>';
+
+  html += '</div>'; // sum-grid
+  el.innerHTML = html;
+}
+
+function sumRow(label, value, status, hint) {
+  var col = status==='ok'?'#4ade80':status==='warn'?'#f0a830':status==='bad'?'#f87171':'var(--muted)';
+  return '<div class="sum-row">'
+    +'<span class="sum-label">'+(hint?'<span title="'+hint+'">'+label+' ⓘ</span>':label)+'</span>'
+    +'<span class="sum-val" style="color:'+col+'">'+value+'</span>'
+    +'</div>';
+}
+
+
+function refreshSummary() {
+  var el=document.getElementById("summary");
+  if(el) renderSummary(computeSummary(allData), el);
+}
 </script>
 </body>
 </html>
